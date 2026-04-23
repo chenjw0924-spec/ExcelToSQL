@@ -11,6 +11,7 @@ export default function App() {
   const [activeSheets, setActiveSheets] = useState<string[]>([]);
   const [tableNames, setTableNames] = useState<Record<string, string>>({});
   const [dialect, setDialect] = useState<Dialect>('SQL Server');
+  const [includeCreateTable, setIncludeCreateTable] = useState<boolean>(true);
   const [sqlOutput, setSqlOutput] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -148,6 +149,28 @@ export default function App() {
 
         const batchSize = 1000;
 
+        if (includeCreateTable) {
+          const colDefs = headers.map(h => {
+             let type = 'VARCHAR(255)';
+             if (dialect === 'SQL Server') type = 'NVARCHAR(MAX)';
+             if (dialect === 'PostgreSQL') type = 'TEXT';
+             if (dialect === 'Oracle') type = 'VARCHAR2(4000)';
+             if (dialect === 'DM') type = 'VARCHAR(8000)';
+             if (dialect === 'MySQL') type = 'TEXT';
+             return `${quoteId(h)} ${type}`;
+          }).join(',\n  ');
+
+          combinedSql += `-- 创建表结构 \n`;
+          if (dialect === 'SQL Server') {
+            combinedSql += `IF OBJECT_ID(N'${finalTableName}', N'U') IS NULL\nBEGIN\n  CREATE TABLE ${quotedTableName} (\n  ${colDefs}\n  );\nEND;\nGO\n\n`;
+          } else if (dialect === 'Oracle') {
+            combinedSql += `BEGIN\n  EXECUTE IMMEDIATE 'CREATE TABLE ${quotedTableName} (\n  ${colDefs}\n  )';\nEXCEPTION\n  WHEN OTHERS THEN\n    IF SQLCODE != -955 THEN\n      RAISE;\n    END IF;\nEND;\n/\n\n`;
+          } else {
+            // MySQL, PostgreSQL, DM support IF NOT EXISTS
+            combinedSql += `CREATE TABLE IF NOT EXISTS ${quotedTableName} (\n  ${colDefs}\n);\n\n`;
+          }
+        }
+
         for (let i = 0; i < rows.length; i += batchSize) {
           const batch = rows.slice(i, i + batchSize);
           // Skip empty rows (where all cols are null)
@@ -176,7 +199,7 @@ export default function App() {
     } catch (err: any) {
       setError(`生成 SQL 错误: ${err.message}`);
     }
-  }, [workbook, activeSheets, tableNames, dialect]);
+  }, [workbook, activeSheets, tableNames, dialect, includeCreateTable]);
 
   const copyToClipboard = async () => {
     if (!sqlOutput) return;
@@ -248,10 +271,61 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto p-6 sm:p-10 grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
-        {/* Left/Top Configuration Sidebar */}
-        <div className="lg:col-span-4 space-y-6">
+      <main className="max-w-7xl mx-auto p-6 sm:p-10 space-y-8">
+        {/* Guide / Stepper */}
+        <div className="bg-white rounded-xl shadow-sm border border-indigo-100 overflow-hidden relative">
+          <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
+          <div className="p-6">
+            <h2 className="text-lg font-semibold text-neutral-800 mb-4 flex items-center gap-2">
+              <span className="bg-blue-100 text-blue-700 px-2.5 py-0.5 rounded-md text-xs tracking-wider uppercase">操作指南</span>
+              如何快速生成 SQL 脚本
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative">
+              {/* Step 1 */}
+              <div className="relative">
+                <div className="flex items-start gap-4">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center font-bold border border-blue-200">1</div>
+                  <div>
+                    <h3 className="font-medium text-neutral-900 text-sm">选择数据源文件</h3>
+                    <p className="text-xs text-neutral-500 mt-1 leading-relaxed">
+                      支持 <strong>.xlsx, .xls, .csv</strong> 格式。系统将默认把<strong className="text-neutral-700">第一行数据</strong>作为生成的数据库表字段名，空值会自动处理。
+                    </p>
+                  </div>
+                </div>
+              </div>
+              {/* Step 2 */}
+              <div className="relative">
+                <div className="hidden md:block absolute top-4 -left-3 w-6 h-px bg-neutral-200"></div>
+                <div className="flex items-start gap-4">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center font-bold border border-blue-200">2</div>
+                  <div>
+                    <h3 className="font-medium text-neutral-900 text-sm">配置工作表与方言</h3>
+                    <p className="text-xs text-neutral-500 mt-1 leading-relaxed">
+                      上传后，可<strong>勾选多个工作表(Sheet)</strong>，设置数据库类型(如 SQL Server)。系统会自动为您提取安全的默认表名，支持自定义修改。
+                    </p>
+                  </div>
+                </div>
+              </div>
+              {/* Step 3 */}
+              <div className="relative">
+                <div className="hidden md:block absolute top-4 -left-3 w-6 h-px bg-neutral-200"></div>
+                <div className="flex items-start gap-4">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center font-bold border border-blue-200">3</div>
+                  <div>
+                    <h3 className="font-medium text-neutral-900 text-sm">预览并导出脚本</h3>
+                    <p className="text-xs text-neutral-500 mt-1 leading-relaxed">
+                      系统自动将数据按照<strong>每批 1000 条</strong>分批生成 <code className="bg-neutral-100 px-1 py-0.5 rounded text-neutral-700">INSERT</code> 脚本。右侧实时预览，一键复制或下载为 .sql 文件。
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* Left/Top Configuration Sidebar */}
+          <div className="lg:col-span-4 space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-neutral-200 overflow-hidden">
             <div className="p-5 border-b border-neutral-100 bg-neutral-50/50">
               <h2 className="text-sm font-semibold tracking-wide uppercase text-neutral-600 flex items-center gap-2">
@@ -369,6 +443,18 @@ export default function App() {
                   </div>
                 )}
               </div>
+
+              <div className="space-y-1.5 border-t pt-5 mt-2">
+                <label className="flex items-center cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    checked={includeCreateTable}
+                    onChange={(e) => setIncludeCreateTable(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 rounded border-neutral-300 focus:ring-blue-500"
+                  />
+                  <span className="ml-2 text-sm text-neutral-700 font-medium">如果表不存在，先生成创建表脚本 (CREATE TABLE)</span>
+                </label>
+              </div>
             </div>
           </div>
         </div>
@@ -434,7 +520,7 @@ export default function App() {
             </div>
           </div>
         </div>
-        
+        </div>
       </main>
     </div>
   );
