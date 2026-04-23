@@ -1,0 +1,6 @@
+{
+  "name": "Excel to SQL Converter",
+  "description": "Convert Excel or CSV data into high-performance SQL INSERT scripts with multi-dialect support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
